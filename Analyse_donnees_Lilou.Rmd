@@ -1,0 +1,108 @@
+---
+title: "Analyse_donnees_Lilou"
+author: "Basile PAJOT"
+date: "2025-06-18"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Importer le(s) librarie(s)
+
+La librairie principale qui va nous servir pour l'instant est `tidyverse`. C'est une librairie composée de plusieurs autres (`dplyr`, `stringr`, `ggplot2`, ...) utilisée pour faire du traitement de données et de la représentation graphique de ces données. 
+La première étape est donc d'importer cette librairie.
+```{r}
+library("tidyverse")
+```
+
+
+# Importer le jeu de données
+Le jeu de données est un tableau tsv/csv. Pour l'importer, nous allons utiliser la fonction `read.table` qui nous permet de lire un tableau de données.
+```{r}
+# Définition du chemin d'accès au jeu de données. Cette ligne sera sûrement à changer sur ta machine.
+path_data <- "C:/Users/Basile Pajot/Documents/Pro/Thèse/Projet/Manips/Manip_sexualselection1/Data/Offspring_phenotypes.tsv"
+# Importation jeu de données
+Offspring_data <- read.table(file = path_data,        # Où est le jeu de données. 
+                                  sep = "\t",              # Le séparateur utilisé. Pour un fichier csv, tu peux mettre ","
+                                  header = TRUE)           # Utile si la première ligne du jeu de données contient les noms de colonnes.
+```
+
+Étant donné que ce tableau contient des phénotypes pour les mâles et les femelles, et que nous allons nous intéresser pour l'instant uniquement aux mâles, nous pouvons sous-chantillonner le jeu de données pour ne garder que les mâles. Pour cela, nous allons utiliser la fonction `filter` qui nous permet de filtrer une (ou plusieurs) colonne(s) pour ne garder que les lignes vérifiant une condition.
+```{r}
+Offspring_males <- Offspring_data %>% 
+  filter(Sex == "M")                                       # La condition ici est que la colonne "Sex" soit égale à la chaine de charactère "M"
+```
+
+Nous utilisons également le *pipe* `%>%` qui nous permet d'injecter un tableau (par exemple) dans une fonction. Au dessus, le pipe permet d'injecter le tableau `Offspring_data` dans la fonction `filter`.
+
+## Données manquantes
+La prochaine étape est de regarder le nombre de données manquantes. On peut le faire par lignes ou par colonnes. Dans notre jeu de données, chaque ligne représente un individu donc il est plus simple de regarder le nombre de données manquantes par individus pour enlever ceux qui ne nous conviennent pas. On peut par exemple enlever les individus avec plus de 5% de données manquantes (95% de données renseignées).
+Pour faire ça, on peut fabriquer une fonction qui calcule directement le pourcentage de données manquantes pour chaque individu. Nous allons décomposer cela en deux fonction. La première calcule le nombre de données manquantes et la seconde utilise la première pour calculer la proportion de valeurs manquantes.
+```{r}
+# D'abord, faisons une fonction qui compte le nombre de données manquantes.
+Count_NA <- function(df,                  # Cet argument est un data frame qui peut contenir des valeurs manquantes.
+                     by_row = TRUE){      # Cet argument permet de choisir si on veut le nombre de données manquantes par ligne ou colonne. Par défaut, ce calcul se fait par ligne.
+  # Ici, on choisit comment calculer le nombre de données manquantes (par lignes ou colonnes). On attribue une fonction à la variable temporaire ..function2use..
+  ..function2use.. <- ifelse(by_row, rowSums, colSums)
+  
+  # Puis on calcule le nombre de données manquantes en fonction de ce qu'on a choisi.
+  df %>% 
+    is.na() %>%                     # La fonction is.na() retourne TRUE pour chaque NA rencontré dans le tableau d'entrée.
+    ..function2use..() %>%          # Comme on a TRUE = 1 et FALSE = 0, on peut faire la somme de chaque TRUE pour connaître le nombre de données manquantes.
+    return()                        # On utilise la fonction return en fin de fonction pour dire à notre fonction de retourner le calcul effectué.
+}
+
+# Puis la fonction qui détermine la proportion de données manquantes
+Calculate_percentages_NA <- function(df, by_row = TRUE){         # Comme on va ré-utiliser la fonction qui compte les NA, on doit avoir au moins les mêmes arguments.
+  # D'abord, il faut qu'on choisisse par quelle dimension on divise. Par exemple, si on veut la proportion de valeurs manquantes par ligne, il faut diviser le nombre de données manquantes par le nombre de colonnes du tableau. La variable ..dimension2use.. vaut donc 2 dans ce cas, car le nombre de colonnes est à la deuxième position quand on utilise la fonction dim(df).
+  ..dimension2use.. <- ifelse(by_row, 2, 1)
+  
+  # Puis on calcule le nombre de valeurs manquantes en utilisant la fonction préparée au dessus
+  ..nb_NA.. <- Count_NA(df = df, by_row = by_row)
+  
+  # Et enfin, on calcule la proportion de valeurs manquantes
+  ..missing_proportion.. <- ..nb_NA.. / dim(df)[..dimension2use..]
+  # Qu'on retourne ici
+  return(..missing_proportion..)
+}
+```
+
+Une fois que nous avons fait ces fonctions, utilisons les pour trouver les individus qui ont plus de 5% de données manquantes.Cependant, pour faire ça, nous devons sous-échantillonner le tableau pour ne garder que les phénotypes (les valeurs qui nous intéressent pour les analyses). Nous pouvons faire ça avec la fonction `select` qui nous permet de sélectionner des colonnes par nom dans le tableau.
+Comme tous les noms des colonnes qui contiennent des phénotypes commencent par "P" et un nombre entre 1 et 7, nous allons utiliser `select` en combinaison avec la fonction `starts_with` pour sélectionner toutes les colonnes qui commencent par "P" et un nombre entre 1 et 7.
+```{r}
+# D'abord, faisons un vecteur des débuts de colonnes (de "P1" à "P7")
+columns_to_keep <- paste0("P", 1:7)          # On utilise la fonction `paste` qui nous permet de coller du texte. Ici on colle la lettre "P" à chaque chiffre de la séquence 1:7.
+
+# On sous-échantillonne le tableau pour ne garder que les colonnes qui nous intéressent
+Phenotypes_males <- Offspring_males %>% 
+  select(starts_with(columns_to_keep))
+
+# On calcule le nombre de données manquantes
+Individual_NA_ratio <- Calculate_percentages_NA(Phenotypes_males, by_row = TRUE) %>%
+  round(digits = 2)
+
+```
+
+Maintenant qu'on a obtenu le pourcentage de valeurs manquantes par ligne, on peut chercher quels sont les individus qui ont plus de 5% de NA. Pour cela, nous allons utiliser la fonction `which` qui nous permet de retourner les indices (les positions dans le vecteur) des éléments du vecteur qui sont TRUE.
+```{r}
+# D'abord, on veut voir si les individus on plus de 5% de données manquantes
+Missing_threshold <- 0.05
+Is_percentage_over_threshold <- Individual_NA_ratio > Missing_threshold
+# Ceci nous donne un vecteur avec des TRUE et FALSE. On peut donc utiliser which pour trouver les indices des TRUE
+Indices_over_threshold <- which(Is_percentage_over_threshold)
+```
+On a donc 18 individus pour lesquels on dépasse le seuil qu'on a fixé à 5%. Ce seuil est très conservatif et peut être assoupli un peu (jusqu'à 20%), mais ici, essayons de continuer avec ce seuil de valeurs manquantes. 
+La prochaine étape est donc de retirer ces individus. On peut faire ça de plusieurs façons. On peut soit utiliser les indices des individus qu'on vient de trouver, soit utiliser une méthode plus directe:
+```{r}
+# D'abord, en utilisant les indices des individus dont on veut se débarasser:
+## Les indices des individus qu'on a récupéré au-dessus correspondent au numéro de ligne sur lequel les individus sont dans le tableau de données. On peut donc enlever les individus en disant qu'on ne veut pas les lignes identifiées au-dessus.
+Offspring_males_without_NA <- Offspring_males[-Indices_over_threshold, ]
+
+# La deuxième méthode plus directe utilise la fonction filter
+Offspring_males_without_NA <- Offspring_males %>% 
+  filter(Calculate_percentages_NA(Offspring_males) > Missing_threshold)
+```
