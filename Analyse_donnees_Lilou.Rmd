@@ -11,6 +11,14 @@ editor_options:
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+```{r, include=FALSE}
+# Useful variables
+my_theme <- theme_bw() +
+  theme(text = element_text(size = 15))
+```
+
+
+
 # Importer le(s) librarie(s)
 
 La librairie principale qui va nous servir pour l'instant est `tidyverse`. C'est une librairie composée de plusieurs autres (`dplyr`, `stringr`, `ggplot2`, ...) utilisée pour faire du traitement de données et de la représentation graphique de ces données. 
@@ -26,9 +34,27 @@ Le jeu de données est un tableau tsv/csv. Pour l'importer, nous allons utiliser
 # Définition du chemin d'accès au jeu de données. Cette ligne sera sûrement à changer sur ta machine.
 path_data <- "C:/Users/Basile Pajot/Documents/Pro/Thèse/Projet/Manips/Manip_sexualselection1/Data/Offspring_phenotypes.tsv"
 # Importation jeu de données
-Offspring_data <- read.table(file = path_data,        # Où est le jeu de données. 
-                                  sep = "\t",              # Le séparateur utilisé. Pour un fichier csv, tu peux mettre ","
-                                  header = TRUE)           # Utile si la première ligne du jeu de données contient les noms de colonnes.
+Offspring_data <- read.table(file = path_data,             # Où est le jeu de données
+                             sep = "\t",                   # Le séparateur utilisé. Pour un fichier csv, tu peux mettre ","
+                             header = TRUE,                # Utile si la première ligne du jeu de données contient les noms de colonnes.
+                             dec = ",")                    # Indique comment utiliser quel séparateur décimal utiliserS
+```
+
+Une fois importé, le jeu de données doit être nettoyé. On peut par exemple commencer par renomer une colonne pour compenser une erreur de frappe.
+Certaines colonnes contiennent aussi des valeurs maximales de soies comptées (notées ">40" pour les parties où il y a plus de 40 soies, mais seules 40 sont décernables). Nous allons donc nous débarasser de ces ">" en utilisant la fonction `mutate` en combinaison avec `across` qui nous permet de modifier plusieurs colonnes en une ligne. 
+```{r}
+# Il y a des ">" dans le jeu de données dont on aimerait se débarasser. Pour se faire, on repère les colonnes dans lesquelles on a des ">" avec:
+columns_with_signs <- which(grepl(">", Offspring_data))
+column_names <- colnames(Offspring_data)
+
+# On modifie ces colonnes pour enlever les ">" et transformer le tout en valeurs numériques
+Offspring_data <- Offspring_data %>% 
+  rename(P4.isch.curv.setae = P4.isch.cirv.setae) %>% 
+  mutate(across(column_names[columns_with_signs], ~ str_remove_all(., ">")),
+         across(column_names[columns_with_signs], ~ as.numeric(.)),
+         Isolation_date = as.Date(Isolation_date, "%d/%m/%Y"))
+
+
 ```
 
 Étant donné que ce tableau contient des phénotypes pour les mâles et les femelles, et que nous allons nous intéresser pour l'instant uniquement aux mâles, nous pouvons sous-chantillonner le jeu de données pour ne garder que les mâles. Pour cela, nous allons utiliser la fonction `filter` qui nous permet de filtrer une (ou plusieurs) colonne(s) pour ne garder que les lignes vérifiant une condition.
@@ -104,5 +130,166 @@ Offspring_males_without_NA <- Offspring_males[-Indices_over_threshold, ]
 
 # La deuxième méthode plus directe utilise la fonction filter
 Offspring_males_without_NA <- Offspring_males %>% 
-  filter(Calculate_percentages_NA(Offspring_males) > Missing_threshold)
+  filter(Calculate_percentages_NA(Phenotypes_males) < Missing_threshold)
+
+# Et faisons de même pour les femelles.
+Offspring_females_without_NA <- Offspring_data %>% 
+  filter(Sex == "F") %>% 
+  filter(Calculate_percentages_NA(Offspring_data %>% 
+                                    filter(Sex == "F") %>% select(starts_with(columns_to_keep))) < Missing_threshold)
+
+Offspring_data_without_NA <- Offspring_females_without_NA %>% 
+  rbind(Offspring_males_without_NA)
+  
 ```
+
+Nous allons donc maintenant toujours utiliser ce tableau de données filtrées pour faire les analyses.
+
+
+
+# Exploration du jeu de données
+
+
+## Nombre de d'individus de chaque espèce
+Les mâles peuvent être identifiés pour chaque espèce en fonction du phénotype et c'est ce qui est indiqué dans la colonne `Phenotype` du jeu de données. Nous voulons voir combien il y a de mâles de chaque espèce.
+```{r}
+Offspring_males_without_NA %>% 
+  ggplot() +
+  geom_bar(aes(x = Phenotype, fill = Phenotype), colour = "black") +
+  scale_fill_manual(values = c("forsmani" = "lightcoral", "hybrid" = "plum2", "praehirsuta" = "dodgerblue3", "NA" = "grey")) +
+  labs(y = "Number of individuals") +
+  my_theme
+```
+Il semble qu'il y ait des individus avec des NA au niveau des phénotypes. Un des objectifs va être d'essayer de les attribuer à un phénotype.
+
+
+## Distribution du nombre d'épines par pereiopode
+On veut regarder la distribution du nombre total d'épines par pereiopode et par individu. Pour faire ça, on doit faire pivoter notre tableau pour avoir une colonne avec les noms des péréiopodes et une avec le nombre d'épines par pereiopode. Pour faire ça, on utilise la fonction `pivot_longer`.
+```{r}
+Offspring_males_without_NA %>% 
+  rename(P4.ep = P4.small.ep) %>%                     # On renome une colonne pour qu'on puisse la sélectionner avec les autres
+  select(paste0("P", 4:7, ".ep"), Phenotype) %>%      # On sélectionne les colonnes qu'on veut faire pivoter
+  pivot_longer(cols = -Phenotype,                     # Quelles colonnes faire pivoter?
+               names_to = "Pereiopod",                # Comment s'appelle la colonne dans laquelle les anciens noms de colonne se retrouvent?
+               values_to = "Number_spines") %>%       # Comment s'appelle la colonne dans laquelle les anciennes valeurs se retrouvent?
+  mutate(Pereiopod = Pereiopod %>% str_remove_all(., ".ep")) %>%     # On enlève la terminaison du nom de colonne
+  ggplot(aes(x = Pereiopod, y = Number_spines, fill = Phenotype)) +  # On commence la représentation graphique
+  geom_boxplot() +
+  facet_wrap(vars(Phenotype)) +                       # Ceci permet de faire un graphique pour chaque phenotype
+  scale_fill_manual(values = c("forsmani" = "lightcoral", "hybrid" = "plum2", "praehirsuta" = "dodgerblue3", "NA" = "grey")) +
+  labs(y = "Number of spines per pereiopod") +
+  my_theme
+```
+On observe qu'on a des différences entre le nombre d'épines entre les deux espèces, en particulier sur le P6. Pour forsmani, on au moins deux épines sur le P6 là où chez praehirsuta, il semble y en avoir moins en moyenne. Les hybrides semblent avoir un nombre d'épines intermédiaire entre forsmani et praehirsuta. Il faut cependant vérifier que les nombres d'épines sont significativement différents entre espèces, ce qui ne semble pas être le cas étant donné que les intervalles de confiance des boxplots se recoupent (peut mieux se voir sur le graphique suivant).
+```{r}
+Offspring_males_without_NA %>% 
+  rename(P4.ep = P4.small.ep) %>% 
+  select(paste0("P", 4:7, ".ep"), Phenotype) %>% 
+  pivot_longer(cols = -Phenotype,
+               names_to = "Pereiopod",
+               values_to = "Number_spines") %>%
+  mutate(Pereiopod = Pereiopod %>% str_remove_all(., ".ep")) %>% 
+  filter(Phenotype %in% c("forsmani", "praehirsuta")) %>%
+  ggplot(aes(x = Pereiopod, y = Number_spines, fill = Phenotype)) +
+  geom_boxplot() +
+  scale_fill_manual(values = c("forsmani" = "lightcoral", "hybrid" = "plum2", "praehirsuta" = "dodgerblue3", "NA" = "grey")) +
+  labs(y = "Number of spines per pereiopod") +
+  my_theme
+```
+
+
+## Distribution du nombre de soies par pereiopode
+De la même façon que pour le nombre d'épines, on veut voir si on trouve une différence dans le nombre de soies entre espèces.
+```{r}
+Offspring_males_without_NA %>%
+  rename(P6.curv.setae = P6.carp.curv.setae) %>% 
+  select(paste0("P", 1:6, ".curv.setae"), Phenotype) %>%
+  pivot_longer(cols = -Phenotype,
+               names_to = "Pereiopod",
+               values_to = "Number_setae") %>% 
+  mutate(Pereiopod = Pereiopod %>% str_remove_all(., ".curv.setae")) %>% 
+  ggplot() +
+  geom_boxplot(aes(x = Pereiopod, y = Number_setae, fill = Phenotype)) +
+  facet_wrap(vars(Phenotype)) +
+  scale_fill_manual(values = c("forsmani" = "lightcoral", "hybrid" = "plum2", "praehirsuta" = "dodgerblue3", "NA" = "grey")) +
+  labs(y = "Number of curved setae per pereiopod") +
+  my_theme
+```
+On observe que les praehirsuta ont nettement plus de soies courbes que les forsmani (qui n'en ont presque pas). Les hybrides ont quelques soies, mais leur nombre reste tout de même inférieur à ceux des praehirsuta purs. A nouveau, il faut faire un test stat pour être certain que ces différences entre espèces et avec les hybrides entre espèces sont significatives.
+
+## Distribution de taille
+### Entre sexes
+Nous avons une distribution de taille différente entre les sexes. Les femelles sont plus grandes que les mâles. Nous pouvons observer ça en regardant la distribution de taille entre les différents sexes.
+```{r}
+Offspring_data_without_NA %>% 
+  ggplot() +
+  geom_density(aes(x = Size, fill = Sex), alpha = 0.5)
+```
+Les différences de taille entre les sexes semble claire, mais on ne sait pas si elles sont significativement différentes ou non.
+
+### Entre espèces
+Il semble également y avoir deux pics dans la distribution de taille des individus mâles dans le graphique précédent. On peut donc regarder si les individus des espèces différentes ont des tailles différentes.
+```{r}
+Offspring_data_without_NA %>% 
+  filter(Sex == "M") %>% 
+  ggplot() +
+  geom_density(aes(x = Size, fill = Phenotype), alpha = 0.5)+
+  scale_fill_manual(values = c("forsmani" = "lightcoral", "hybrid" = "plum2", "praehirsuta" = "dodgerblue3", "NA" = "grey")) +
+  my_theme
+```
+Il semble que les distributions de taille des deux espèces soit différentes avec des praehirsuta qui sont plus petits que les forsmani. Les hybrides semblent avoir des tailles intermédiaires entre les deux espèces. 
+
+### Corrélation taille nombre d'épines
+#### Males
+```{r}
+Offspring_males_without_NA %>% 
+  rename(P4.ep = P4.small.ep) %>% 
+  select(paste0("P", 4:7, ".ep"), Phenotype, Size) %>% 
+  pivot_longer(cols = -c(Phenotype, Size),
+               names_to = "Pereiopod",
+               values_to = "Number_spines") %>%
+  mutate(Pereiopod = Pereiopod %>% str_remove_all(., ".ep")) %>%
+  ggplot() +
+  geom_point(aes(x = Size, y = Number_spines)) +
+  facet_wrap(vars(Phenotype)) +
+  my_theme
+```
+
+#### Femelles
+```{r}
+Offspring_females_without_NA %>% 
+  rename(P4.ep = P4.small.ep) %>% 
+  select(paste0("P", 4:7, ".ep"), Size) %>% 
+  pivot_longer(cols = -Size,
+               names_to = "Pereiopod",
+               values_to = "Number_spines") %>% 
+  ggplot() +
+  geom_point(aes(x = Size, y = Number_spines)) +
+  my_theme
+```
+
+### Corrélation taille nombre de soies
+```{r}
+Offspring_males_without_NA %>% 
+  rename(P6.curv.setae = P6.carp.curv.setae) %>% 
+  select(paste0("P", 1:6, ".curv.setae"), Phenotype, Size) %>%
+  pivot_longer(cols = -c(Phenotype, Size),
+               names_to = "Pereiopod",
+               values_to = "Number_setae") %>% 
+  mutate(Pereiopod = Pereiopod %>% str_remove_all(., ".curv.setae")) %>%
+  ggplot() +
+  geom_point(aes(x = Size, y = Number_setae)) +
+  facet_wrap(vars(Phenotype)) +
+  my_theme
+```
+
+## Différence de phénologie entre espèces
+```{r}
+Offspring_males_without_NA %>% 
+  ggplot() +
+  geom_histogram(aes(x = Isolation_date, fill = Phenotype), bins = 30) +
+  facet_wrap(vars(Phenotype), ncol = 1) +
+  my_theme +
+  labs(x = "Date d'isolation")
+```
+
