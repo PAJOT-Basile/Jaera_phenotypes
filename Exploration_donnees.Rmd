@@ -2,8 +2,10 @@
 title: "Analyse_donnees_Lilou"
 author: "Basile PAJOT"
 date: "2025-06-18"
-output: html_document
-editor_options: 
+output:
+  html_document: default
+  pdf_document: default
+editor_options:
   chunk_output_type: console
 ---
 
@@ -11,26 +13,70 @@ editor_options:
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+# Importer le(s) librarie(s)
+
+La librairie principale qui va nous servir pour l'instant est `tidyverse`. C'est une librairie composée de plusieurs autres (`dplyr`, `stringr`, `ggplot2`, ...) utilisée pour faire du traitement de données et de la représentation graphique de ces données. La première étape est donc d'importer cette librairie.
+
+```{r, message=FALSE}
+libraries <- c("tidyverse", "GGally", "corrplot")
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(character.only = TRUE, char = libraries)
+rm(libraries)
+# library(tidyverse)
+# library(GGally)
+# library(corrplot)
+```
+
 ```{r, include=FALSE}
 # Useful variables
 my_theme <- theme_bw() +
   theme(text = element_text(size = 15))
+
+Transform_spines_setae_names <- function(df){
+    ..df.. <- df %>% 
+      mutate(Segment_1 = case_when(
+        grepl("prop", Segment_1) ~ "Pro",
+        grepl("carp", Segment_1) ~ "Car",
+        grepl("merus", Segment_1) ~ "Mer",
+        grepl("isch", Segment_1) ~ "Isch",
+        grepl("very.large.ep", Segment_1) ~ "XL",
+        grepl("larg.ep", Segment_1) ~ "L",
+        grepl("med.ep", Segment_1) ~ "M",
+        grepl("small.ep", Segment_1) ~ "S",
+        grepl("ep.dist.very.large", Segment_1) ~ "XL_dist",
+        grepl("ep.dist.large", Segment_1) ~ "L_dist",
+        grepl("ep.dist.medium", Segment_1) ~ "M_dist",
+        grepl("ep.dist.small", Segment_1) ~ "S_dist",
+        grepl("ep.dist$", Segment_1) ~ "Tot_dist",
+        TRUE ~ "Tot"
+      ) %>% 
+        factor(levels = c("XL", "L", "M", "S", "XL_dist", "L_dist", "M_dist", "S_dist", "Pro", "Car", "Mer", "Isch", "Tot", "Tot_dist")),
+      Segment_2 = case_when(
+        grepl("prop", Segment_2) ~ "Pro",
+        grepl("carp", Segment_2) ~ "Car",
+        grepl("merus", Segment_2) ~ "Mer",
+        grepl("isch", Segment_2) ~ "Isch",
+        grepl("very.large.ep", Segment_2) ~ "XL",
+        grepl("larg.ep", Segment_2) ~ "L",
+        grepl("med.ep", Segment_2) ~ "M",
+        grepl("small.ep", Segment_2) ~ "S",
+        grepl("ep.dist.very.large", Segment_2) ~ "XL_dist",
+        grepl("ep.dist.large", Segment_2) ~ "L_dist",
+        grepl("ep.dist.medium", Segment_2) ~ "M_dist",
+        grepl("ep.dist.small", Segment_2) ~ "S_dist",
+        grepl("ep.dist$", Segment_2) ~ "Tot_dist",
+        TRUE ~ "Tot"
+      ) %>% 
+        factor(levels = c("XL", "L", "M", "S", "XL_dist", "L_dist", "M_dist", "S_dist", "Pro", "Car", "Mer", "Isch", "Tot", "Tot_dist") %>% rev)) %>%
+  return()
+}
 ```
-
-
-
-# Importer le(s) librarie(s)
-
-La librairie principale qui va nous servir pour l'instant est `tidyverse`. C'est une librairie composée de plusieurs autres (`dplyr`, `stringr`, `ggplot2`, ...) utilisée pour faire du traitement de données et de la représentation graphique de ces données. 
-La première étape est donc d'importer cette librairie.
-```{r}
-library("tidyverse")
-```
-
 
 # Importer le jeu de données
+
 Le jeu de données est un tableau tsv/csv. Pour l'importer, nous allons utiliser la fonction `read.table` qui nous permet de lire un tableau de données.
-```{r}
+
+```{r, warning=FALSE}
 # Définition du chemin d'accès au jeu de données. Cette ligne sera sûrement à changer sur ta machine.
 path_data <- "C:/Users/Basile Pajot/Documents/Pro/Thèse/Projet/Manips/Manip_sexualselection1/Data/Offspring_phenotypes.tsv"
 # Importation jeu de données
@@ -40,9 +86,9 @@ Offspring_data <- read.table(file = path_data,             # Où est le jeu de d
                              dec = ",")                    # Indique comment utiliser quel séparateur décimal utiliserS
 ```
 
-Une fois importé, le jeu de données doit être nettoyé. On peut par exemple commencer par renomer une colonne pour compenser une erreur de frappe.
-Certaines colonnes contiennent aussi des valeurs maximales de soies comptées (notées ">40" pour les parties où il y a plus de 40 soies, mais seules 40 sont décernables). Nous allons donc nous débarasser de ces ">" en utilisant la fonction `mutate` en combinaison avec `across` qui nous permet de modifier plusieurs colonnes en une ligne. 
-```{r}
+Une fois importé, le jeu de données doit être nettoyé. On peut par exemple commencer par renomer une colonne pour compenser une erreur de frappe. Certaines colonnes contiennent aussi des valeurs maximales de soies comptées (notées "\>40" pour les parties où il y a plus de 40 soies, mais seules 40 sont décernables). Nous allons donc nous débarasser de ces "\>" en utilisant la fonction `mutate` en combinaison avec `across` qui nous permet de modifier plusieurs colonnes en une ligne.
+
+```{r, warning=FALSE}
 # Il y a des ">" dans le jeu de données dont on aimerait se débarasser. Pour se faire, on repère les colonnes dans lesquelles on a des ">" avec:
 columns_with_signs <- which(grepl(">", Offspring_data))
 column_names <- colnames(Offspring_data)
@@ -58,7 +104,8 @@ Offspring_data <- Offspring_data %>%
 ```
 
 Étant donné que ce tableau contient des phénotypes pour les mâles et les femelles, et que nous allons nous intéresser pour l'instant uniquement aux mâles, nous pouvons sous-chantillonner le jeu de données pour ne garder que les mâles. Pour cela, nous allons utiliser la fonction `filter` qui nous permet de filtrer une (ou plusieurs) colonne(s) pour ne garder que les lignes vérifiant une condition.
-```{r}
+
+```{r, warning=FALSE}
 Offspring_males <- Offspring_data %>% 
   filter(Sex == "M")                                       # La condition ici est que la colonne "Sex" soit égale à la chaine de charactère "M"
 ```
@@ -66,9 +113,10 @@ Offspring_males <- Offspring_data %>%
 Nous utilisons également le *pipe* `%>%` qui nous permet d'injecter un tableau (par exemple) dans une fonction. Au dessus, le pipe permet d'injecter le tableau `Offspring_data` dans la fonction `filter`.
 
 ## Données manquantes
-La prochaine étape est de regarder le nombre de données manquantes. On peut le faire par lignes ou par colonnes. Dans notre jeu de données, chaque ligne représente un individu donc il est plus simple de regarder le nombre de données manquantes par individus pour enlever ceux qui ne nous conviennent pas. On peut par exemple enlever les individus avec plus de 5% de données manquantes (95% de données renseignées).
-Pour faire ça, on peut fabriquer une fonction qui calcule directement le pourcentage de données manquantes pour chaque individu. Nous allons décomposer cela en deux fonction. La première calcule le nombre de données manquantes et la seconde utilise la première pour calculer la proportion de valeurs manquantes.
-```{r}
+
+La prochaine étape est de regarder le nombre de données manquantes. On peut le faire par lignes ou par colonnes. Dans notre jeu de données, chaque ligne représente un individu donc il est plus simple de regarder le nombre de données manquantes par individus pour enlever ceux qui ne nous conviennent pas. On peut par exemple enlever les individus avec plus de 5% de données manquantes (95% de données renseignées). Pour faire ça, on peut fabriquer une fonction qui calcule directement le pourcentage de données manquantes pour chaque individu. Nous allons décomposer cela en deux fonction. La première calcule le nombre de données manquantes et la seconde utilise la première pour calculer la proportion de valeurs manquantes.
+
+```{r, warning=FALSE}
 # D'abord, faisons une fonction qui compte le nombre de données manquantes.
 Count_NA <- function(df,                  # Cet argument est un data frame qui peut contenir des valeurs manquantes.
                      by_row = TRUE){      # Cet argument permet de choisir si on veut le nombre de données manquantes par ligne ou colonne. Par défaut, ce calcul se fait par ligne.
@@ -97,9 +145,9 @@ Calculate_percentages_NA <- function(df, by_row = TRUE){         # Comme on va r
 }
 ```
 
-Une fois que nous avons fait ces fonctions, utilisons les pour trouver les individus qui ont plus de 5% de données manquantes.Cependant, pour faire ça, nous devons sous-échantillonner le tableau pour ne garder que les phénotypes (les valeurs qui nous intéressent pour les analyses). Nous pouvons faire ça avec la fonction `select` qui nous permet de sélectionner des colonnes par nom dans le tableau.
-Comme tous les noms des colonnes qui contiennent des phénotypes commencent par "P" et un nombre entre 1 et 7, nous allons utiliser `select` en combinaison avec la fonction `starts_with` pour sélectionner toutes les colonnes qui commencent par "P" et un nombre entre 1 et 7.
-```{r}
+Une fois que nous avons fait ces fonctions, utilisons les pour trouver les individus qui ont plus de 5% de données manquantes.Cependant, pour faire ça, nous devons sous-échantillonner le tableau pour ne garder que les phénotypes (les valeurs qui nous intéressent pour les analyses). Nous pouvons faire ça avec la fonction `select` qui nous permet de sélectionner des colonnes par nom dans le tableau. Comme tous les noms des colonnes qui contiennent des phénotypes commencent par "P" et un nombre entre 1 et 7, nous allons utiliser `select` en combinaison avec la fonction `starts_with` pour sélectionner toutes les colonnes qui commencent par "P" et un nombre entre 1 et 7.
+
+```{r, warning=FALSE}
 # D'abord, faisons un vecteur des débuts de colonnes (de "P1" à "P7")
 columns_to_keep <- paste0("P", 1:7)          # On utilise la fonction `paste` qui nous permet de coller du texte. Ici on colle la lettre "P" à chaque chiffre de la séquence 1:7.
 
@@ -114,16 +162,18 @@ Individual_NA_ratio <- Calculate_percentages_NA(Phenotypes_males, by_row = TRUE)
 ```
 
 Maintenant qu'on a obtenu le pourcentage de valeurs manquantes par ligne, on peut chercher quels sont les individus qui ont plus de 5% de NA. Pour cela, nous allons utiliser la fonction `which` qui nous permet de retourner les indices (les positions dans le vecteur) des éléments du vecteur qui sont TRUE.
-```{r}
+
+```{r, warning=FALSE}
 # D'abord, on veut voir si les individus on plus de 5% de données manquantes
 Missing_threshold <- 0.05
 Is_percentage_over_threshold <- Individual_NA_ratio > Missing_threshold
 # Ceci nous donne un vecteur avec des TRUE et FALSE. On peut donc utiliser which pour trouver les indices des TRUE
 Indices_over_threshold <- which(Is_percentage_over_threshold)
 ```
-On a donc 18 individus pour lesquels on dépasse le seuil qu'on a fixé à 5%. Ce seuil est très conservatif et peut être assoupli un peu (jusqu'à 20%), mais ici, essayons de continuer avec ce seuil de valeurs manquantes. 
-La prochaine étape est donc de retirer ces individus. On peut faire ça de plusieurs façons. On peut soit utiliser les indices des individus qu'on vient de trouver, soit utiliser une méthode plus directe:
-```{r}
+
+On a donc 18 individus pour lesquels on dépasse le seuil qu'on a fixé à 5%. Ce seuil est très conservatif et peut être assoupli un peu (jusqu'à 20%), mais ici, essayons de continuer avec ce seuil de valeurs manquantes. La prochaine étape est donc de retirer ces individus. On peut faire ça de plusieurs façons. On peut soit utiliser les indices des individus qu'on vient de trouver, soit utiliser une méthode plus directe:
+
+```{r, warning=FALSE}
 # D'abord, en utilisant les indices des individus dont on veut se débarasser:
 ## Les indices des individus qu'on a récupéré au-dessus correspondent au numéro de ligne sur lequel les individus sont dans le tableau de données. On peut donc enlever les individus en disant qu'on ne veut pas les lignes identifiées au-dessus.
 Offspring_males_without_NA <- Offspring_males[-Indices_over_threshold, ]
@@ -145,14 +195,13 @@ Offspring_data_without_NA <- Offspring_females_without_NA %>%
 
 Nous allons donc maintenant toujours utiliser ce tableau de données filtrées pour faire les analyses.
 
-
-
 # Exploration du jeu de données
 
+## Nombre d'individus de chaque espèce
 
-## Nombre de d'individus de chaque espèce
 Les mâles peuvent être identifiés pour chaque espèce en fonction du phénotype et c'est ce qui est indiqué dans la colonne `Phenotype` du jeu de données. Nous voulons voir combien il y a de mâles de chaque espèce.
-```{r}
+
+```{r, warning=FALSE}
 Offspring_males_without_NA %>% 
   ggplot() +
   geom_bar(aes(x = Phenotype, fill = Phenotype), colour = "black") +
@@ -160,12 +209,14 @@ Offspring_males_without_NA %>%
   labs(y = "Number of individuals") +
   my_theme
 ```
+
 Il semble qu'il y ait des individus avec des NA au niveau des phénotypes. Un des objectifs va être d'essayer de les attribuer à un phénotype.
 
-
 ## Distribution du nombre d'épines par pereiopode
+
 On veut regarder la distribution du nombre total d'épines par pereiopode et par individu. Pour faire ça, on doit faire pivoter notre tableau pour avoir une colonne avec les noms des péréiopodes et une avec le nombre d'épines par pereiopode. Pour faire ça, on utilise la fonction `pivot_longer`.
-```{r}
+
+```{r, warning=FALSE}
 Offspring_males_without_NA %>% 
   rename(P4.ep = P4.small.ep) %>%                     # On renome une colonne pour qu'on puisse la sélectionner avec les autres
   select(paste0("P", 4:7, ".ep"), Phenotype) %>%      # On sélectionne les colonnes qu'on veut faire pivoter
@@ -180,8 +231,10 @@ Offspring_males_without_NA %>%
   labs(y = "Number of spines per pereiopod") +
   my_theme
 ```
+
 On observe qu'on a des différences entre le nombre d'épines entre les deux espèces, en particulier sur le P6. Pour forsmani, on au moins deux épines sur le P6 là où chez praehirsuta, il semble y en avoir moins en moyenne. Les hybrides semblent avoir un nombre d'épines intermédiaire entre forsmani et praehirsuta. Il faut cependant vérifier que les nombres d'épines sont significativement différents entre espèces, ce qui ne semble pas être le cas étant donné que les intervalles de confiance des boxplots se recoupent (peut mieux se voir sur le graphique suivant).
-```{r}
+
+```{r, warning=FALSE}
 Offspring_males_without_NA %>% 
   rename(P4.ep = P4.small.ep) %>% 
   select(paste0("P", 4:7, ".ep"), Phenotype) %>% 
@@ -197,10 +250,11 @@ Offspring_males_without_NA %>%
   my_theme
 ```
 
-
 ## Distribution du nombre de soies par pereiopode
+
 De la même façon que pour le nombre d'épines, on veut voir si on trouve une différence dans le nombre de soies entre espèces.
-```{r}
+
+```{r, warning=FALSE}
 Offspring_males_without_NA %>%
   rename(P6.curv.setae = P6.carp.curv.setae) %>% 
   select(paste0("P", 1:6, ".curv.setae"), Phenotype) %>%
@@ -215,21 +269,28 @@ Offspring_males_without_NA %>%
   labs(y = "Number of curved setae per pereiopod") +
   my_theme
 ```
+
 On observe que les praehirsuta ont nettement plus de soies courbes que les forsmani (qui n'en ont presque pas). Les hybrides ont quelques soies, mais leur nombre reste tout de même inférieur à ceux des praehirsuta purs. A nouveau, il faut faire un test stat pour être certain que ces différences entre espèces et avec les hybrides entre espèces sont significatives.
 
 ## Distribution de taille
+
 ### Entre sexes
+
 Nous avons une distribution de taille différente entre les sexes. Les femelles sont plus grandes que les mâles. Nous pouvons observer ça en regardant la distribution de taille entre les différents sexes.
-```{r}
+
+```{r, warning=FALSE}
 Offspring_data_without_NA %>% 
   ggplot() +
   geom_density(aes(x = Size, fill = Sex), alpha = 0.5)
 ```
+
 Les différences de taille entre les sexes semble claire, mais on ne sait pas si elles sont significativement différentes ou non.
 
 ### Entre espèces
+
 Il semble également y avoir deux pics dans la distribution de taille des individus mâles dans le graphique précédent. On peut donc regarder si les individus des espèces différentes ont des tailles différentes.
-```{r}
+
+```{r, warning=FALSE}
 Offspring_data_without_NA %>% 
   filter(Sex == "M") %>% 
   ggplot() +
@@ -239,11 +300,14 @@ Offspring_data_without_NA %>%
 
 
 ```
-Il semble que les distributions de taille des deux espèces soit différentes avec des praehirsuta qui sont plus petits que les forsmani. Les hybrides semblent avoir des tailles intermédiaires entre les deux espèces. 
+
+Il semble que les distributions de taille des deux espèces soit différentes avec des praehirsuta qui sont plus petits que les forsmani. Les hybrides semblent avoir des tailles intermédiaires entre les deux espèces.
 
 ### Corrélation taille nombre d'épines
+
 #### Males
-```{r}
+
+```{r, warning=FALSE}
 Offspring_males_without_NA %>% 
   rename(P4.ep = P4.small.ep) %>% 
   select(paste0("P", 4:7, ".ep"), Phenotype, Size) %>% 
@@ -258,7 +322,8 @@ Offspring_males_without_NA %>%
 ```
 
 #### Femelles
-```{r}
+
+```{r, warning=FALSE, include=FALSE}
 Offspring_females_without_NA %>% 
   rename(P4.ep = P4.small.ep) %>% 
   select(paste0("P", 4:7, ".ep"), Size) %>% 
@@ -271,7 +336,8 @@ Offspring_females_without_NA %>%
 ```
 
 ### Corrélation taille nombre de soies
-```{r}
+
+```{r, warning=FALSE}
 Offspring_males_without_NA %>% 
   rename(P6.curv.setae = P6.carp.curv.setae) %>% 
   select(paste0("P", 1:6, ".curv.setae"), Phenotype, Size) %>%
@@ -281,12 +347,13 @@ Offspring_males_without_NA %>%
   mutate(Pereiopod = Pereiopod %>% str_remove_all(., ".curv.setae")) %>%
   ggplot() +
   geom_point(aes(x = Size, y = Number_setae)) +
-  facet_wrap(vars(Phenotype)) +
+  facet_wrap(vars(Phenotype), scales = "free") +
   my_theme
 ```
 
 ## Différence de phénologie entre espèces
-```{r}
+
+```{r, warning=FALSE}
 Offspring_males_without_NA %>% 
   ggplot() +
   geom_histogram(aes(x = Isolation_date, fill = Phenotype), bins = 30) +
@@ -295,3 +362,446 @@ Offspring_males_without_NA %>%
   labs(x = "Date d'isolation")
 ```
 
+Il ne semble pas y avoir de décalage de la phénologie entre espèces.
+
+# Corrélations
+
+## Nombre d'épines P7
+
+### Matrice de corrélations
+
+```{r, warning=FALSE}
+Nbre_spines_P7 <- Offspring_males_without_NA %>% 
+  select(contains("P7"), Phenotype)
+
+corr_matrix_P7<-cor(Nbre_spines_P7 %>% 
+                   select(-Phenotype))
+```
+
+### Représentation graphique
+
+```{r, warning=FALSE}
+corr_matrix_P7 %>% 
+  as.data.frame %>% 
+  rownames_to_column("Segment_1") %>% 
+  pivot_longer(cols = -Segment_1,
+               values_to = "Correlation",
+               names_to = "Segment_2") %>% 
+  Transform_spines_setae_names() %>% 
+  ggplot()+
+  geom_tile(aes(x=Segment_1,y=Segment_2,fill=Correlation))+
+  my_theme +
+  labs(caption = "P7 spines")
+
+```
+
+```{r, warning=FALSE, fig.height=12, fig.width=12}
+ggpairs(Nbre_spines_P7,columns = 1:8,ggplot2::aes(colour=Phenotype))+
+  my_theme
+
+```
+
+## P6
+
+```{r, warning=FALSE, echo=FALSE}
+Nbre_spines_P6<-Offspring_males_without_NA %>% 
+  select(contains("P6"),Phenotype)
+```
+
+```{r, include=FALSE}
+
+#Correlation for P6.very.large.ep with the others spines
+
+  cor(Nbre_spines_P6$P6.very.large.ep,Nbre_spines_P6$P6.larg.ep)
+  # La correlation est de -0.14
+  
+  cor(Nbre_spines_P6$P6.very.large.ep,Nbre_spines_P6$P6.med.ep)
+  #La correlation est de 0.039
+  
+  cor(Nbre_spines_P6$P6.very.large.ep,Nbre_spines_P6$P6.small.ep)
+  #La correlation est de 0.099
+  
+  
+  cor(Nbre_spines_P6$P6.very.large.ep,Nbre_spines_P6$P6.ep.dist.very.large)
+  #La correlation est de 0
+  
+  
+  cor(Nbre_spines_P6$P6.very.large.ep,Nbre_spines_P6$P6.ep.dist.large)
+  #La correlation est de-0.022
+  
+  
+  cor(Nbre_spines_P6$P6.very.large.ep,Nbre_spines_P6$P6.ep.dist.medium)
+  #La correlation est de 0.024
+  
+  
+  cor(Nbre_spines_P6$P6.very.large.ep,Nbre_spines_P6$P6.ep.dist.small)
+  #La correlation est de -0.044
+  
+  
+  #Correlation for P6.larg.ep with the others spines
+
+  
+  cor(Nbre_spines_P6$P6.larg.ep,Nbre_spines_P6$P6.med.ep)
+  #La correlation est de 0.11
+  
+  cor(Nbre_spines_P6$P6.larg.ep,Nbre_spines_P6$P6.small.ep)
+  #La correlation est de -0.14
+  
+  
+  cor(Nbre_spines_P6$P6.larg.ep,Nbre_spines_P6$P6.ep.dist.very.large)
+  #La correlation est de 0
+  
+  
+  cor(Nbre_spines_P6$P6.larg.ep,Nbre_spines_P6$P6.ep.dist.large)
+  #La correlation est de 0.15
+  
+  
+  cor(Nbre_spines_P6$P6.larg.ep,Nbre_spines_P6$P6.ep.dist.medium)
+  #La correlation est de 0.052
+  
+  
+  cor(Nbre_spines_P6$P6.larg.ep,Nbre_spines_P6$P6.ep.dist.small)
+  #La correlation est de 0.097
+  
+  
+   #Correlation for P6.med.ep with the others spines
+
+  
+  cor(Nbre_spines_P6$P6.med.ep,Nbre_spines_P6$P6.small.ep)
+  #La correlation est de -0.40
+  
+  
+  cor(Nbre_spines_P6$P6.med.ep,Nbre_spines_P6$P6.ep.dist.very.large)
+  #La correlation est de 0
+  
+  
+  cor(Nbre_spines_P6$P6.med.ep,Nbre_spines_P6$P6.ep.dist.large)
+  #La correlation est de 0.055
+  
+  
+  cor(Nbre_spines_P6$P6.med.ep,Nbre_spines_P6$P6.ep.dist.medium)
+  #La correlation est de 0.068
+  
+  
+  cor(Nbre_spines_P6$P6.med.ep,Nbre_spines_P6$P6.ep.dist.small)
+  #La correlation est de 0.014
+  
+  #Correlation for P6.small.ep with the others spines
+
+  
+  cor(Nbre_spines_P6$P6.small.ep,Nbre_spines_P6$P6.ep.dist.very.large)
+  #La correlation est de 0
+  
+  
+  cor(Nbre_spines_P6$P6.small.ep,Nbre_spines_P6$P6.ep.dist.large)
+  #La correlation est de -0.064
+  
+  
+  cor(Nbre_spines_P6$P6.small.ep,Nbre_spines_P6$P6.ep.dist.medium)
+  #La correlation est de -0.12
+  
+  
+  cor(Nbre_spines_P6$P6.small.ep,Nbre_spines_P6$P6.ep.dist.small)
+  #La correlation est de 0.007
+  
+    
+  #Correlation for P6.ep.dist.very.large with the others spines
+
+  cor(Nbre_spines_P6$P6.ep.dist.very.large,Nbre_spines_P6$P6.ep.dist.large)
+  #La correlation est de 0
+  
+  
+  cor(Nbre_spines_P6$P6.ep.dist.very.large,Nbre_spines_P6$P6.ep.dist.medium)
+  #La correlation est de 0
+  
+  
+  cor(Nbre_spines_P6$P6.ep.dist.very.large,Nbre_spines_P6$P6.ep.dist.small)
+  #La correlation est de 0
+  
+   #Correlation for P6.ep.dist.large with the others spines
+  
+  cor(Nbre_spines_P6$P6.ep.dist.large,Nbre_spines_P6$P6.ep.dist.medium)
+  #La correlation est de -0.0062
+  
+  
+  cor(Nbre_spines_P6$P6.ep.dist.large,Nbre_spines_P6$P6.ep.dist.small)
+  #La correlation est de -0.0066 
+  
+   #Correlation for P6.ep.dist.medium with the others spines
+  
+  cor(Nbre_spines_P6$P6.ep.dist.medium,Nbre_spines_P6$P6.ep.dist.small)
+  #La correlation est de -0.012
+  
+  
+    
+  #graphique pour la corrélation la plus haute pour la P6 
+  
+  ggplot(data=Nbre_spines_P6,aes(x=P6.med.ep,y=P6.small.ep,color=Phenotype))+
+  geom_point()+
+  facet_wrap(vars(Phenotype))
+
+
+```
+
+```{r, warning=FALSE, echo=FALSE}
+
+corr_matrix_P6<-cor(Nbre_spines_P6 %>% 
+                   select(-Phenotype))
+```
+
+```{r, warning=FALSE, echo=FALSE}
+corr_matrix_P6 %>% 
+  as.data.frame %>% 
+  rownames_to_column("Segment_1") %>% 
+  pivot_longer(cols = -Segment_1,
+               values_to = "Correlation",
+               names_to = "Segment_2") %>% 
+  Transform_spines_setae_names() %>% 
+  ggplot()+
+  geom_tile(aes(x=Segment_1,y=Segment_2,fill=Correlation))+
+  my_theme +
+  labs(caption = "P6 spines")
+
+```
+
+```{r, warning=FALSE, echo=FALSE, fig.height=12, fig.width=12}
+ggpairs(Nbre_spines_P6,columns = 1:10,ggplot2::aes(colour=Phenotype))+
+  my_theme
+
+```
+
+## P5
+
+```{r, warning=FALSE, echo=FALSE}
+Nbre_spines_P5<-Offspring_males_without_NA %>% 
+  select(contains("P5"),Phenotype)
+```
+
+```{r, include=FALSE}
+#Correlation for P5.very.large.ep with the others spines
+
+  cor(Nbre_spines_P5$P5.very.large.ep,Nbre_spines_P5$P5.large.ep)
+  # La correlation est de 0
+  
+  cor(Nbre_spines_P5$P5.very.large.ep,Nbre_spines_P5$P5.medium.ep)
+  #La correlation est de 0
+  
+  cor(Nbre_spines_P5$P5.very.large.ep,Nbre_spines_P5$P5.small.ep)
+  #La correlation est de 0
+  
+   cor(Nbre_spines_P5$P5.very.large.ep,Nbre_spines_P5$P5.ep.dist)
+  #La correlation est de 0
+  
+  
+  #Correlation for P5.large.ep with the others spines
+
+  
+  cor(Nbre_spines_P5$P5.large.ep,Nbre_spines_P5$P5.medium.ep)
+  #La correlation est de 0
+  
+  cor(Nbre_spines_P5$P5.large.ep,Nbre_spines_P5$P5.small.ep)
+  #La correlation est de 0
+  
+  
+  cor(Nbre_spines_P5$P5.large.ep,Nbre_spines_P5$P5.ep.dist)
+  #La correlation est de 0
+  
+
+   #Correlation for P5.medium.ep with the others spines
+
+  
+  cor(Nbre_spines_P5$P5.medium.ep,Nbre_spines_P5$P5.small.ep)
+  #La correlation est de -0.021
+  
+  
+  cor(Nbre_spines_P5$P5.medium.ep,Nbre_spines_P5$P5.ep.dist)
+  #La correlation est de 0
+ 
+  #Correlation for P5.small.ep with the others spines
+
+  
+  cor(Nbre_spines_P5$P5.small.ep,Nbre_spines_P5$P5.ep.dist)
+  #La correlation est de 0
+
+  
+
+  #graphique pour la corrélation la plus haute pour la P5 
+  
+  ggplot(data=Nbre_spines_P5,aes(x=P5.medium.ep,y=P5.small.ep,color=Phenotype))+
+  geom_point()+
+  facet_wrap(vars(Phenotype))
+
+
+```
+
+```{r, warning=FALSE, echo=FALSE}
+
+corr_matrix_P5<-cor(Nbre_spines_P5 %>% 
+                   select(-Phenotype))
+```
+
+```{r, warning=FALSE, echo=FALSE}
+corr_matrix_P5 %>% 
+  as.data.frame %>% 
+  rownames_to_column("Segment_1") %>% 
+  pivot_longer(cols = -Segment_1,
+               values_to = "Correlation",
+               names_to = "Segment_2") %>% 
+  Transform_spines_setae_names() %>% 
+  ggplot()+
+  geom_tile(aes(x=Segment_1,y=Segment_2,fill=Correlation))+
+  my_theme +
+  labs(caption = "P5 spines/setae")
+
+```
+
+```{r, warning=FALSE, echo=FALSE, fig.height=12, fig.width=12}
+ggpairs(Nbre_spines_P5,columns = 1:11, ggplot2::aes(colour=Phenotype))+
+  my_theme
+
+```
+
+## P4
+
+```{r, warning=FALSE, echo=FALSE}
+Nbre_setae_P4 <- Offspring_males_without_NA %>%
+  select(contains("P4"), Phenotype)
+
+```
+
+```{r, warning=FALSE, echo=FALSE}
+
+corr_matrix_P4 <- cor(Nbre_setae_P4 %>%
+      select(-Phenotype))
+```
+
+```{r, warning=FALSE, echo=FALSE}
+corr_matrix_P4 %>%
+  as.data.frame %>%
+  rownames_to_column("Segment_1") %>%
+  pivot_longer(cols = -Segment_1,
+               values_to = "Correlation",
+               names_to = "Segment_2") %>%
+  Transform_spines_setae_names() %>% 
+  ggplot() +
+  geom_tile(aes(x = Segment_1, y = Segment_2, fill = Correlation)) +
+  my_theme +
+  labs(caption = "P4 spines/setae")
+
+
+```
+
+```{r, warning=FALSE, echo=FALSE, fig.height=12, fig.width=12}
+ggpairs(Nbre_setae_P4, columns = 1:6, ggplot2::aes(colour = Phenotype))+
+my_theme
+
+
+```
+
+## P3
+
+```{r, warning=FALSE, echo=FALSE}
+Nbre_setae_P3 <- Offspring_males_without_NA %>%
+  select(contains("P3"), Phenotype) %>%
+  select(-contains("ep"))
+```
+
+```{r, warning=FALSE, echo=FALSE}
+# Matrice de corrélations
+corr_matrix_P3 <- cor(Nbre_setae_P3 %>%
+      select(-Phenotype))
+```
+
+```{r, warning=FALSE, echo=FALSE}
+
+corr_matrix_P3 %>%
+  as.data.frame %>%
+  rownames_to_column("Segment_1") %>%
+  pivot_longer(cols = -Segment_1,
+               values_to = "Correlation",
+               names_to = "Segment_2") %>%
+  Transform_spines_setae_names() %>% 
+  ggplot() +
+  geom_tile(aes(x = Segment_1, y = Segment_2, fill = Correlation)) +
+  my_theme
+```
+
+```{r, warning=FALSE, echo=FALSE, fig.height=12, fig.width=12}
+ggpairs(Nbre_setae_P3, columns = 1:5, ggplot2::aes(colour = Phenotype))+
+  my_theme
+
+
+```
+
+## P2
+
+```{r, warning=FALSE, echo=FALSE}
+Nbre_setae_P2 <- Offspring_males_without_NA %>%
+  select(contains("P2"), Phenotype) %>%
+  select(-contains("ep"))
+
+```
+
+```{r, warning=FALSE, echo=FALSE}
+# Matrice de corrélations
+corr_matrix_P2 <- cor(Nbre_setae_P2 %>%
+      select(-Phenotype))
+```
+
+```{r, warning=FALSE, echo=FALSE}
+
+corr_matrix_P2 %>%
+  as.data.frame %>%
+  rownames_to_column("Segment_1") %>%
+  pivot_longer(cols = -Segment_1,
+               values_to = "Correlation",
+               names_to = "Segment_2") %>%
+  Transform_spines_setae_names() %>% 
+  ggplot() +
+  geom_tile(aes(x = Segment_1, y = Segment_2, fill = Correlation)) +
+  my_theme
+```
+
+```{r, warning=FALSE, echo=FALSE, fig.height=12, fig.width=12}
+ggpairs(Nbre_setae_P2, columns = 1:5, ggplot2::aes(colour = Phenotype)) +
+  my_theme
+
+
+```
+
+## P1
+
+```{r, warning=FALSE, echo=FALSE}
+Nbre_setae_P1 <- Offspring_males_without_NA %>%
+  select(contains("P1"), Phenotype) %>%
+  select(-contains("ep"))
+
+```
+
+```{r, warning=FALSE, echo=FALSE}
+# Matrice de corrélations
+corr_matrix_P1 <- cor(Nbre_setae_P1 %>%
+      select(-Phenotype))
+
+```
+
+```{r, warning=FALSE, echo=FALSE}
+
+corr_matrix_P1 %>%
+  as.data.frame %>%
+  rownames_to_column("Segment_1") %>%
+  pivot_longer(cols = -Segment_1,
+               values_to = "Correlation",
+               names_to = "Segment_2") %>% 
+  Transform_spines_setae_names() %>%
+  ggplot() +
+  geom_tile(aes(x = Segment_1, y = Segment_2, fill = Correlation)) +
+  my_theme
+
+```
+
+```{r, warning=FALSE, echo=FALSE, fig.height=12, fig.width=12}
+ggpairs(Nbre_setae_P1, columns = 1:5, ggplot2::aes(colour = Phenotype)) +
+  my_theme
+
+```
